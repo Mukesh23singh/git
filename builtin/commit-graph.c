@@ -6,6 +6,7 @@
 #include "repository.h"
 #include "commit-graph.h"
 #include "object-store.h"
+#include "progress.h"
 
 static char const * const builtin_commit_graph_usage[] = {
 	N_("git commit-graph verify [--object-dir <objdir>] [--shallow] [--[no-]progress]"),
@@ -138,14 +139,39 @@ static int write_option_parse_split(const struct option *opt, const char *arg,
 	return 0;
 }
 
+static int read_one_commit(struct oidset *commits, struct progress *progress,
+			   char *hash)
+{
+	struct commit *result;
+	struct object_id oid;
+	const char *end;
+
+	if (parse_oid_hex(hash, &oid, &end)) {
+		error(_("unexpected non-hex object ID: %s"), hash);
+		return 1;
+	}
+
+	display_progress(progress, oidset_size(commits) + 1);
+
+	if (oid_object_info(the_repository, &oid, NULL) < 0) {
+		error(_("object %s does not exist"), hash);
+		return 1;
+	}
+
+	result = lookup_commit_reference_gently(the_repository, &oid, 1);
+	if (result)
+		oidset_insert(commits, &result->object.oid);
+	return 0;
+}
+
 static int graph_write(int argc, const char **argv)
 {
-	struct string_list *pack_indexes = NULL;
+	struct string_list pack_indexes;
 	struct oidset commits = OIDSET_INIT;
 	struct object_directory *odb = NULL;
-	struct string_list lines;
 	int result = 0;
 	enum commit_graph_write_flags flags = 0;
+	struct progress *progress = NULL;
 
 	static struct option builtin_commit_graph_write_options[] = {
 		OPT_STRING(0, "object-dir", &opts.obj_dir,
@@ -209,44 +235,41 @@ static int graph_write(int argc, const char **argv)
 		return 0;
 	}
 
-	string_list_init(&lines, 0);
+	string_list_init(&pack_indexes, 0);
 	if (opts.stdin_packs || opts.stdin_commits) {
 		struct strbuf buf = STRBUF_INIT;
-
-		while (strbuf_getline(&buf, stdin) != EOF)
-			string_list_append(&lines, strbuf_detach(&buf, NULL));
-
-		if (opts.stdin_packs)
-			pack_indexes = &lines;
 		if (opts.stdin_commits) {
-			struct string_list_item *item;
-			oidset_init(&commits, lines.nr);
-			for_each_string_list_item(item, &lines) {
-				struct object_id oid;
-				const char *end;
-
-				if (parse_oid_hex(item->string, &oid, &end)) {
-					error(_("unexpected non-hex object ID: "
-						"%s"), item->string);
-					return 1;
-				}
-
-				oidset_insert(&commits, &oid);
-			}
-			flags |= COMMIT_GRAPH_WRITE_CHECK_OIDS;
+			oidset_init(&commits, 0);
+			if (opts.progress)
+				progress = start_delayed_progress(
+					_("Collecting commits from input"), 0);
 		}
+
+		while (strbuf_getline(&buf, stdin) != EOF) {
+			char *line = strbuf_detach(&buf, NULL);
+			if (opts.stdin_commits) {
+				int result = read_one_commit(&commits, progress,
+							     line);
+				if (result)
+					return result;
+			} else
+				string_list_append(&pack_indexes, line);
+		}
+
+		if (progress)
+			stop_progress(&progress);
 
 		UNLEAK(buf);
 	}
 
 	if (write_commit_graph(odb,
-			       pack_indexes,
+			       opts.stdin_packs ? &pack_indexes : NULL,
 			       opts.stdin_commits ? &commits : NULL,
 			       flags,
 			       &split_opts))
 		result = 1;
 
-	UNLEAK(lines);
+	UNLEAK(pack_indexes);
 	return result;
 }
 
