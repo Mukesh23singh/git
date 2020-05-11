@@ -301,6 +301,19 @@ __gitcomp_direct ()
 	COMPREPLY=($1)
 }
 
+# Similar to __gitcomp_direct, but appends to COMPREPLY instead.
+# Callers must take care of providing only words that match the current word
+# to be completed and adding any prefix and/or suffix (trailing space!), if
+# necessary.
+# 1: List of newline-separated matching completion words, complete with
+#    prefix and suffix.
+__gitcomp_direct_append ()
+{
+	local IFS=$'\n'
+
+	COMPREPLY+=($1)
+}
+
 __gitcompappend ()
 {
 	local x i=${#COMPREPLY[@]}
@@ -611,6 +624,19 @@ __git_heads ()
 			"refs/heads/$cur_*" "refs/heads/$cur_*/**"
 }
 
+# Lists branches from remote repositories.
+# 1: A prefix to be added to each listed branch (optional).
+# 2: List only branches matching this word (optional; list all branches if
+#    unset or empty).
+# 3: A suffix to be appended to each listed branch (optional).
+__git_remote_heads ()
+{
+	local pfx="${1-}" cur_="${2-}" sfx="${3-}"
+
+	__git for-each-ref --format="${pfx//\%/%%}%(refname:strip=2)$sfx" \
+			"refs/remotes/$cur_*" "refs/remotes/$cur_*/**"
+}
+
 # Lists tags from the local repository.
 # Accepts the same positional parameters as __git_heads() above.
 __git_tags ()
@@ -619,6 +645,26 @@ __git_tags ()
 
 	__git for-each-ref --format="${pfx//\%/%%}%(refname:strip=2)$sfx" \
 			"refs/tags/$cur_*" "refs/tags/$cur_*/**"
+}
+
+# List unique branches from refs/remotes used for 'git checkout' and 'git
+# switch' tracking DWIMery.
+# 1: A prefix to be added to each listed branch (optional)
+# 2: List only branches matching this word (optional; list all branches if
+#    unset or empty).
+# 3: A suffix to be appended to each listed branch (optional).
+__git_dwim_remote_heads ()
+{
+	local pfx="${1-}" cur_="${2-}" sfx="${3-}"
+	local fer_pfx="${pfx//\%/%%}" # "escape" for-each-ref format specifiers
+
+	# employ the heuristic used by git checkout and git switch
+	# Try to find a remote branch that cur_es the completion word
+	# but only output if the branch name is unique
+	__git for-each-ref --format="$fer_pfx%(refname:strip=3)$sfx" \
+		--sort="refname:strip=3" \
+		"refs/remotes/*/$cur_*" "refs/remotes/*/$cur_*/**" | \
+	uniq -u
 }
 
 # Lists refs from the local (by default) or from a remote repository.
@@ -696,13 +742,7 @@ __git_refs ()
 		__git_dir="$dir" __git for-each-ref --format="$fer_pfx%($format)$sfx" \
 			"${refs[@]}"
 		if [ -n "$track" ]; then
-			# employ the heuristic used by git checkout
-			# Try to find a remote branch that matches the completion word
-			# but only output if the branch name is unique
-			__git for-each-ref --format="$fer_pfx%(refname:strip=3)$sfx" \
-				--sort="refname:strip=3" \
-				"refs/remotes/*/$match*" "refs/remotes/*/$match*/**" | \
-			uniq -u
+			__git_dwim_remote_heads "$pfx" "$match" "$sfx"
 		fi
 		return
 	fi
@@ -749,29 +789,51 @@ __git_refs ()
 # Usage: __git_complete_refs [<option>]...
 # --remote=<remote>: The remote to list refs from, can be the name of a
 #                    configured remote, a path, or a URL.
-# --track: List unique remote branches for 'git checkout's tracking DWIMery.
+# --dwim: List unique remote branches for 'git switch's tracking DWIMery.
 # --pfx=<prefix>: A prefix to be added to each ref.
 # --cur=<word>: The current ref to be completed.  Defaults to the current
 #               word to be completed.
 # --sfx=<suffix>: A suffix to be appended to each ref instead of the default
 #                 space.
+# --mode=<mode>: What set of refs to complete, one of 'refs' (the default) to
+#                complete all refs, 'heads' to complete only branches, or
+#                'remote-heads' to complete only remote branches. Note that
+#                --remote is only compatible with --mode=refs.
 __git_complete_refs ()
 {
-	local remote track pfx cur_="$cur" sfx=" "
+	local remote dwim pfx cur_="$cur" sfx=" " mode="refs"
 
 	while test $# != 0; do
 		case "$1" in
 		--remote=*)	remote="${1##--remote=}" ;;
-		--track)	track="yes" ;;
+		--dwim)		dwim="yes" ;;
+		# --track is an old spelling of --dwim
+		--track)	dwim="yes" ;;
 		--pfx=*)	pfx="${1##--pfx=}" ;;
 		--cur=*)	cur_="${1##--cur=}" ;;
 		--sfx=*)	sfx="${1##--sfx=}" ;;
+		--mode=*)	mode="${1##--mode=}" ;;
 		*)		return 1 ;;
 		esac
 		shift
 	done
 
-	__gitcomp_direct "$(__git_refs "$remote" "$track" "$pfx" "$cur_" "$sfx")"
+	# complete references based on the specified mode
+	case "$mode" in
+		refs)
+			__gitcomp_direct "$(__git_refs "$remote" "" "$pfx" "$cur_" "$sfx")" ;;
+		heads)
+			__gitcomp_direct "$(__git_heads "$pfx" "$cur_" "$sfx")" ;;
+		remote-heads)
+			__gitcomp_direct "$(__git_remote_heads "$pfx" "$cur_" "$sfx")" ;;
+		*)
+			return 1 ;;
+	esac
+
+	# Append DWIM remote branch names if requested
+	if [ "$dwim" = "yes" ]; then
+		__gitcomp_direct_append "$(__git_dwim_remote_heads "$pfx" "$cur_" "$sfx")"
+	fi
 }
 
 # __git_refs2 requires 1 argument (to pass to __git_refs)
@@ -1370,12 +1432,12 @@ _git_checkout ()
 	*)
 		# check if --track, --no-track, or --no-guess was specified
 		# if so, disable DWIM mode
-		local flags="--track --no-track --no-guess" track_opt="--track"
+		local flags="--track --no-track --no-guess" dwim_opt="--dwim"
 		if [ "$GIT_COMPLETION_CHECKOUT_NO_GUESS" = "1" ] ||
 		   [ -n "$(__git_find_on_cmdline "$flags")" ]; then
-			track_opt=''
+			dwim_opt=''
 		fi
-		__git_complete_refs $track_opt
+		__git_complete_refs $dwim_opt
 		;;
 	esac
 }
@@ -2224,30 +2286,46 @@ _git_switch ()
 		__gitcomp_builtin switch
 		;;
 	*)
-		# check if --track, --no-track, or --no-guess was specified
-		# if so, disable DWIM mode
-		local track_opt="--track" only_local_ref=n
-		if [ "$GIT_COMPLETION_CHECKOUT_NO_GUESS" = "1" ] ||
-		   [ -n "$(__git_find_on_cmdline "--track --no-track --no-guess")" ]; then
-			track_opt=''
+		local dwim_opt="--dwim" mode="heads"
+
+		# --orphan is used to create a branch disconnected from the
+		# current history, based on the empty tree. Since the only
+		# option required is the branch name, it doesn't make sense to
+		# complete anything here.
+		if [ -n "$(__git_find_on_cmdline "--orphan")" ]; then
+			return
 		fi
-		# explicit --guess enables DWIM mode regardless of
-		# $GIT_COMPLETION_CHECKOUT_NO_GUESS
-		if [ -n "$(__git_find_on_cmdline "--guess")" ]; then
-			track_opt='--track'
+
+		# By default, git switch will DWIM with remote branch names by
+		# allowing these to expand into creating a local tracking
+		# branch of the same name. Completion for this can be disabled
+		# via GIT_COMPLETION_CHECKOUT_NO_GUESS, unless the user
+		# explicitly asked this behavior with --guess
+		if [ "$GIT_COMPLETION_CHECKOUT_NO_GUESS" = "1" ] &&
+		   [ -z "$(__git_find_on_cmdline "--guess")" ]; then
+			dwim_opt=''
 		fi
-		if [ -z "$(__git_find_on_cmdline "-d --detach")" ]; then
-			only_local_ref=y
-		else
-			# --guess --detach is invalid combination, no
-			# dwim will be done when --detach is specified
-			track_opt=
+
+		# Certain combinations of options also disable this DWIM mode,
+		# so we should not complete such names in these cases.
+		if [ -n "$(__git_find_on_cmdline "--track --no-track --no-guess -d --detach -c -C")" ]; then
+			dwim_opt=''
 		fi
-		if [ $only_local_ref = y -a -z "$track_opt" ]; then
-			__gitcomp_direct "$(__git_heads "" "$cur" " ")"
-		else
-			__git_complete_refs $track_opt
+
+		# By default, git switch will only allow switching between
+		# local branches, or DWIM with remote branch names. However,
+		# certain options for creating branches or detaching should
+		# complete all references.
+		#
+		# Additionally, if --track is provided on its own, we should
+		# complete only remote branch names.
+		if [ -n "$(__git_find_on_cmdline "-d --detach -c -C")" ]; then
+			mode="refs"
+		elif [ -n "$(__git_find_on_cmdline "--track")" ]; then
+			mode="remote-heads"
 		fi
+
+		__git_complete_refs $dwim_opt --mode=$mode
 		;;
 	esac
 }
