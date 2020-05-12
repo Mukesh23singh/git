@@ -1641,29 +1641,19 @@ static int packed_reflog_expire(struct ref_store *ref_store,
 }
 
 struct ref_storage_be refs_be_packed = {
-	NULL,
-	"packed",
-	packed_ref_store_create,
-	packed_init_db,
-	packed_transaction_prepare,
-	packed_transaction_finish,
-	packed_transaction_abort,
-	packed_initial_transaction_commit,
+	NULL, "packed", packed_ref_store_create, packed_init_db,
+	packed_transaction_prepare, packed_transaction_finish,
+	packed_transaction_abort, packed_initial_transaction_commit,
 
-	packed_pack_refs,
-	packed_create_symref,
-	packed_delete_refs,
-	packed_rename_ref,
-	packed_copy_ref,
+	packed_pack_refs, packed_create_symref, packed_delete_refs,
+	packed_rename_ref, packed_copy_ref,
 
-	packed_ref_iterator_begin,
-	packed_read_raw_ref,
+	/* XXX */
+	NULL, NULL,
 
-	packed_reflog_iterator_begin,
-	packed_for_each_reflog_ent,
-	packed_for_each_reflog_ent_reverse,
-	packed_reflog_exists,
-	packed_create_reflog,
-	packed_delete_reflog,
-	packed_reflog_expire
+	packed_ref_iterator_begin, packed_read_raw_ref,
+
+	packed_reflog_iterator_begin, packed_for_each_reflog_ent,
+	packed_for_each_reflog_ent_reverse, packed_reflog_exists,
+	packed_create_reflog, packed_delete_reflog, packed_reflog_expire
 };

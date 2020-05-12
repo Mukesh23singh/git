@@ -1,0 +1,14 @@
+commit e74c14b66b6c15f6526c485f2e45d3f2735d359d
+Author: Han-Wen Nienhuys <hanwen@google.com>
+Date:   Mon May 11 21:02:55 2020 +0200
+
+    C: handle out-of-date reftable stacks
+
+    * Make reftable_stack_reload() check out-of-dateness. This makes it very cheap,
+      allowing it to be called often. This is useful because Git calls itself often,
+      which effectively requires a reload.
+
+    * In reftable_stack_add(), check the return value of stack_uptodate(), leading
+      to erroneously succeeding the transaction.
+
+    * A test that exercises the above.
