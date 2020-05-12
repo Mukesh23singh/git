@@ -8,18 +8,21 @@ test_description='stash can handle submodules'
 git_stash () {
 	git status -su >expect &&
 	ls -1pR * >>expect &&
-	git read-tree -u -m "$1" &&
-	git stash &&
-	git status -su >actual &&
-	ls -1pR * >>actual &&
-	test_cmp expect actual &&
-	git stash apply
+	$OVERWRITING_FAIL git read-tree -u -m "$1" &&
+	if test -z "$OVERWRITING_FAIL"
+	then
+		git stash &&
+		git status -su >actual &&
+		ls -1pR * >>actual &&
+		test_cmp expect actual &&
+		git stash apply
+	fi
 }
 
 KNOWN_FAILURE_STASH_DOES_IGNORE_SUBMODULE_CHANGES=1
 KNOWN_FAILURE_CHERRY_PICK_SEES_EMPTY_COMMIT=1
 KNOWN_FAILURE_NOFF_MERGE_DOESNT_CREATE_EMPTY_SUBMODULE_DIR=1
-test_submodule_switch "git_stash"
+test_submodule_switch_func "git_stash"
 
 setup_basic () {
 	test_when_finished "rm -rf main sub" &&
