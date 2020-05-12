@@ -459,17 +459,31 @@ with `--keep-base` in order to drop those commits from your branch.
 See also INCOMPATIBLE OPTIONS below.
 
 --ignore-whitespace::
+	Behaves differently depending on which backend is selected.
++
+apply backend: When applying a patch, ignore changes in whitespace in
+context lines.
++
+merge backend: Treat lines with only whitespace changes as unchanged
+when merging.
+
 --whitespace=<option>::
-	These flags are passed to the 'git apply' program
+	This flag is passed to the 'git apply' program
 	(see linkgit:git-apply[1]) that applies the patch.
 	Implies --apply.
 +
 See also INCOMPATIBLE OPTIONS below.
 
 --committer-date-is-author-date::
+	Instead of using the current time as the committer date, use
+	the author date of the commit being rebased as the committer
+	date. This option implies --force-rebase.
+
 --ignore-date::
-	These flags are passed to 'git am' to easily change the dates
-	of the rebased commits (see linkgit:git-am[1]).
+--reset-author-date::
+	Instead of using the author date of the original commit, use
+	the current time as the	author date of the rebased commit.  This
+	option implies `--force-rebase`.
 +
 See also INCOMPATIBLE OPTIONS below.
 
@@ -607,9 +621,6 @@ INCOMPATIBLE OPTIONS
 The following options:
 
  * --apply
- * --committer-date-is-author-date
- * --ignore-date
- * --ignore-whitespace
  * --whitespace
  * -C
 
@@ -636,6 +647,9 @@ In addition, the following pairs of options are incompatible:
  * --preserve-merges and --signoff
  * --preserve-merges and --rebase-merges
  * --preserve-merges and --empty=
+ * --preserve-merges and --ignore-whitespace
+ * --preserve-merges and --committer-date-is-author-date
+ * --preserve-merges and --ignore-date
  * --keep-base and --onto
  * --keep-base and --root
  * --fork-point and --root
